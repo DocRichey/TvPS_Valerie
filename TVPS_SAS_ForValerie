@@ -1305,7 +1305,10 @@ gerd
 hiatalhernia
 afib
 cirrhosis
-eatingdisorder
+eatingdisorder;
+/dist=normal;
+repeated subject=pid /type=ind printmle; 
+ods output parameterestimates=ssest NObs=matches;
 ;
 ods output ParameterEstimates=ssest NObs=matches;
 run;
