@@ -1,0 +1,1580 @@
+libname m '/dphs/niddk_pesos_5208/Morgan/MethodsCompare/Final Code and Data/Macro';
+run;
+
+libname o '/dphs/niddk_pesos_5208/Morgan/MethodsCompare/Final Code and Data/SimOutput';
+run;
+
+/* Approach: 
+
+1. Define macros that will be used within the main macro
+2.  Write new macro
+3.  Test 
+
+*/
+
+%macro RandIntBetween(min, max);
+   (&min + floor((1+&max-&min)*rand("uniform")))
+%mend;
+
+%macro RandBetween(min, max);
+   (&min + ((1+&max-&min)*rand("uniform")))
+%mend;
+
+%macro step1_seq_strat(
+dsn=
+,control_limit=
+,outdsn=
+,match_male=
+,match_cirrhosis= 
+,match_depression= 
+,match_diabetes= 
+,match_insulin= 
+,match_dyslipidemia=  
+,match_fattyliver= 
+,match_gerd=
+,match_hiatalhernia= 
+,match_mi= 
+,match_stroke= 
+,match_vte= 
+,match_eatingdisorder=
+,match_afib= /* UPDATED */
+,match_age=
+,age_diff=
+,match_bmi=
+,bmi_diff=
+,match_gagne=
+,gagne_diff=
+,match_vterisk=
+,vterisk_diff=
+,rtffile=
+,titlestr=
+);
+    
+/* limit dataset */
+data match;
+    set &dsn;
+run;
+
+/* separate into 2 datasets: one that includes all cases and one that includes all controls */
+data elig_cases;
+   set match;
+   where case=1;
+run;
+    
+data elig_controls;
+    set match;
+    where control=1;
+    /* exclude any extreme values */
+    %if %length(&control_limit)>1 %then %do;
+        where also &control_limit;
+    %end;
+    
+run;
+
+              
+/* match on variables of interest */
+proc sql;
+  create table elig_controls_all as
+   select 
+   ca.*
+  /* add co_prefix to all control variables */
+  ,co.pid as co_pid
+  ,co.eid as co_eid
+  ,co.timept as co_timept
+  ,co.matchtime as co_matchtime
+  ,co.male as co_male
+  ,co.cirrhosis as co_cirrhosis
+  ,co.depression as co_depression
+  ,co.diabetes as co_diabetes
+  ,co.insulin as co_insulin
+  ,co.dyslipidemia as co_dyslipidemia
+  ,co.fattyliver as co_fattyliver
+  ,co.gerd as co_gerd
+  ,co.hiatalhernia as co_hiatalhernia
+  ,co.mi as co_mi
+  ,co.stroke as co_stroke
+  ,co.vte as co_vte
+  ,co.eatingdisorder as co_eatingdisorder
+  ,co.afib as co_afib /* UPDATED */
+  ,co.rage as co_rage
+  ,co.rbmi as co_rbmi
+  ,co.rgagne as co_rgagne
+  ,co.rvterisk as co_rvterisk
+  from elig_cases as ca
+  left join elig_controls as co
+    /* must match on timept and cannot have same pid */
+    on ca.timept=co.timept
+    and ca.pid ne co.pid
+   /* list of matching variables */
+    %if &match_male=1 %then %do; and ca.male=co.male %end;
+    %if &match_cirrhosis=1 %then %do; and ca.cirrhosis=co.cirrhosis %end;
+    %if &match_depression=1 %then %do; and ca.depression=co.depression %end;
+    %if &match_diabetes=1 %then %do; and ca.diabetes=co.diabetes %end;     
+    %if &match_insulin=1 %then %do; and ca.insulin=co.insulin %end;  
+    %if &match_dyslipidemia=1 %then %do; and ca.dyslipidemia=co.dyslipidemia %end;
+    %if &match_fattyliver=1 %then %do; and ca.fattyliver=co.fattyliver %end;
+    %if &match_gerd=1 %then %do; and ca.gerd=co.gerd %end;
+    %if &match_hiatalhernia=1 %then %do; and ca.hiatalhernia=co.hiatalhernia %end;     
+    %if &match_mi=1 %then %do; and ca.mi=co.mi %end;
+    %if &match_stroke=1 %then %do; and ca.stroke=co.stroke %end;   
+    %if &match_vte=1 %then %do; and ca.vte=co.vte %end;  
+    %if &match_eatingdisorder=1 %then %do; and ca.eatingdisorder=co.eatingdisorder %end;   
+    %if &match_afib=1 %then %do; and ca.afib=co.afib %end; /* UPDATED */
+    %if &match_age=1 %then %do; and (ca.rage-co.rage between -&age_diff and &age_diff) %end;
+    %if &match_bmi=1 %then %do; and (ca.rbmi-co.rbmi between -&bmi_diff and &bmi_diff) %end;    
+    %if &match_gagne=1 %then %do; and (ca.rgagne-co.rgagne between -&gagne_diff and &gagne_diff) %end;
+    %if &match_vterisk=1 %then %do; and (ca.rvterisk-co.rvterisk between -&vterisk_diff and &vterisk_diff) %end;    
+    order by ca.pid
+    ;
+ quit;    
+
+ /* create dataset of number of eligible control matches per case */    
+ proc sql;
+     create table exact_match_all_pre as
+     select a.*, b.n_elig_controls
+     from elig_controls_all as a
+     inner join 
+     (select distinct pid, count(distinct co_pid) as n_elig_controls
+     from elig_controls_all
+     group by pid
+     ) as b
+     on a.pid=b.pid
+     order by a.pid
+     ;
+ quit;
+  
+ data exact_match_all;
+   set exact_match_all_pre;
+   by pid;
+   if first.pid then firstpat=1;
+ run;
+    
+ data &outdsn;
+    set exact_match_all;
+ run;
+   
+ proc print data=&outdsn (obs=10); run;
+            
+/*options NoCenter NoDate NoNumber;
+ ods listing;
+ ods noPtitle;
+ ods rtf style=myrtf file="&rtffile..rtf" bodytitle;
+ ods escapechar='^'; */
+
+ title 'Number of distinct cases with no match';
+ proc sql; select count(distinct pid) from &outdsn where n_elig_controls=0; quit;
+ 
+ title 'Number of distinct cases with match';
+ proc sql; select count(distinct pid) from &outdsn where n_elig_controls>0; quit;
+
+ title 'Patient characteristics among cases with no match';
+ proc means data=&outdsn;
+   where n_elig_controls=0;
+   var rage rbmi rgagne rvterisk;
+ run;
+    
+ proc freq data=&outdsn;
+    where n_elig_controls=0;
+    tables 
+    Male
+    Cirrhosis 
+    depression 
+    diabetes 
+    insulin 
+    dyslipidemia   
+    fattyliver 
+    gerd 
+    hiatalhernia 
+    mi 
+    stroke 
+    vte 
+    eatingdisorder
+    afib /* UPDATED */
+    ;
+ run;
+  
+   
+/* %if %length(&titlestr)>1 %then %do; title1 "&titlestr"; %end;
+ proc univariate data=&outdsn;
+    where firstpat=1;
+    var n_elig_controls;
+ run;
+*/
+/*ods rtf close;*/    
+
+%mend step1_seq_strat;  
+
+
+%macro step2_seq_strat(dsn=, outdsn=, rtffile=, titlestr=);
+
+*remove cases with no match; 
+data cases_match;
+   set &dsn;
+    where n_elig_controls>0;
+run;
+         
+        
+*check missingness;        
+proc means data=cases_match n nmiss;
+   var rage co_rage rbmi co_rbmi rgagne co_rgagne rvterisk co_rvterisk;
+run;
+      
+*create a long dataset of cases and controls;        
+proc sql;
+   create table long_cases as
+   select distinct
+   pid
+  ,eid
+  ,timept
+  ,matchtime
+  ,rage
+  ,rbmi
+  ,rgagne
+  ,rvterisk
+  ,0 as control
+  from cases_match
+quit;
+               
+proc sql;
+   create table long_controls as
+   select distinct
+   co_pid as pid
+  ,co_eid as eid
+  ,co_timept as timept
+  ,co_matchtime as matchtime
+  ,co_rage as rage
+  ,co_rbmi as rbmi
+  ,co_rgagne as rgagne
+  ,co_rvterisk as rvterisk
+  ,1 as control
+  from cases_match
+quit;
+
+
+*stack datasets together;
+data stage2;
+  set long_cases long_controls;
+run;
+/*proc print data=stage2 (obs=10); where control=1; run;*/
+
+proc sql;
+   select count(distinct pid) as n_pid
+    ,count(distinct eid) as n_eid
+   from stage2
+   ;
+quit;
+      
+*create principal components used in computing mahalanobis distance;
+*essentially makes transformed variables that are unitless;
+ proc princomp data=stage2 std out=stage2_princomp outstat=outstat noprint;
+     var rage rbmi rgagne rvterisk;
+ run;                
+
+       
+*Separate back out into two datasets;
+*Rename the Transformed variables;
+data cases    (rename=(prin1=case_rageT prin2=case_rbmiT prin3=case_rgagneT prin4=case_rvteriskT))
+     controls (rename=(prin1=control_rageT prin2=control_rbmiT prin3=control_rgagneT prin4=control_rvteriskT pid=co_pid eid=co_eid)); *T=transformed;
+      set stage2_princomp;
+      if control=0 then output cases;
+      else if control=1 then output controls;
+run;
+/*proc print data=cases (obs=10); run;
+proc print data=controls (obs=10); run;*/
+
+
+*Add the Transformed variables to the initial dataset;
+*Did in two steps, first the cases;
+
+proc sql;
+    create table orig2 as
+    select a.*
+    ,b.case_rageT
+    ,b.case_rbmiT
+    ,b.case_rgagneT
+    ,b.case_rvteriskT
+    from &dsn as a
+    inner join cases as b
+    on a.eid=b.eid
+    order by pid, timept
+    ;
+quit;
+
+
+proc sql;
+    create table orig3 as
+    select a.*
+    ,b.control_rageT
+    ,b.control_rbmiT
+    ,b.control_rgagneT
+    ,b.control_rvteriskT
+    from orig2 as a
+    inner join controls as b
+    on a.co_eid=b.co_eid
+    order by pid, timept
+    ;
+quit;    
+/*proc print data=orig3 (obs=25); run;*/
+
+
+*Calculate the distance;
+data distance; 
+    set orig3;
+    distance_mahal = sqrt((case_rageT-control_rageT)**2 + (case_rbmiT-control_rbmiT)**2 + (case_rgagneT-control_rgagneT)**2 + (case_rvteriskT-control_rvteriskT)**2);
+run;
+/*proc print data=distance (obs=25); run;*/
+
+/***** create the 3:1 matches ******/
+data allmatch;
+    set distance;
+run;
+
+   
+*sort by mahalanobis distance function;
+*to get best matches at top of patient ID;
+proc sort data=allmatch out=sort_allmatch;
+      by pid  distance_mahal;
+run;
+/*proc print data=allmatch (obs=25); run;*/
+
+*add count variable to sorted dataset, so that we can keep best n:1 matches;
+data addcount; 
+    set sort_allmatch;
+    length dyad_id $18.;
+    by pid;
+
+    *Consecutive numbering of matches from best match to worst match within each id;
+
+    retain count matchid;
+    if matchid=. then matchid=0; 
+    if first.pid then do; *Start renumbering at 1 for each id;
+      COUNT = 1;
+      matchid=matchid+1;
+    end;
+    else COUNT = Count + 1;
+
+
+    dyad_id=compress(put(100000+matchid, 6.) || "_" ||put(count, 6.)) ;
+    if count<10 then dyad_id=compress(put(100000+matchid, 6.) || "_0" ||put(count, 6.));
+    format dyad_id $18.;
+    label dyad_id='Dyad id';
+run;
+/*
+proc print data=addcount (obs=50); 
+    var pid eid n_elig_controls co_pid co_eid dyad_id matchid count timept distance_mahal; 
+run;
+*/
+    
+*only keeping top 3 matches per case;
+/* MMR - changing this to 1 match per case */
+
+data topmatch_pre;
+    set addcount;
+    by pid distance_mahal;
+    if count=1;
+run;
+/*proc print data=topmatch_pre (obs=5); 
+    var pid eid n_elig_controls co_pid co_eid dyad_id matchid count timept matchtime distance_mahal; 
+run; 
+*/
+*****exclude matches with distance > (99.5 pctl);
+ proc univariate data=topmatch_pre;
+   var distance_mahal;
+   output out=exclude_top pctlpts=99.5 pctlpre=p;
+run;
+proc sql; select p99_5 into :exclude_top from exclude_top; quit;
+
+title "99.5%";
+%put &exclude_top;
+title;
+
+data topmatch;
+    set topmatch_pre;
+    if distance_mahal < &exclude_top;
+    drop firstpat;
+run;
+
+ 
+*count the number of matches per case;
+proc sql;
+    create table n_matches as
+    select distinct pid,
+    count(count) as n_matches,
+    count(distinct co_pid) as n_distinct_matches
+    from topmatch
+    group by pid
+    order by pid
+    ;
+quit;
+/*proc print data=n_matches (obs=20); run;*/
+    
+*identify how often the same control patient is used as a match for multiple case patients;
+proc sql;
+    create table control_dup as 
+    select 
+    a.co_pid
+    ,a.pid
+    ,b.n_times_matched
+    ,b.n_distinct_cases_matched
+    from topmatch as a 
+    inner join (
+    select distinct co_pid,  count(pid) as n_times_matched, 
+    count(distinct pid) as n_distinct_cases_matched
+    from topmatch
+    group by co_pid
+    ) as b
+    on a.co_pid=b.co_pid
+    order by a.co_pid
+    ;
+quit;
+/*proc print data=control_dup (obs=10); where n_times_matched > 2; run;*/
+
+*dedup dataset by control;
+proc sql;
+    create table distinct_control_dup as
+    select distinct co_pid, n_times_matched, n_distinct_cases_matched
+    from control_dup
+    ;
+quit;      
+proc print data=topmatch; where pid=200234; run;
+
+
+/*options NoCenter NoDate NoNumber;
+ ods listing;
+ ods noPtitle;
+ ods rtf style=myrtf file="&rtffile..rtf" bodytitle;
+ ods escapechar='^'; 
+ title1 "&titlestr.";*/
+    
+title2 'Distribution of mahalanobis distance';    
+proc univariate data=distance;
+    var distance_mahal;
+run;    
+
+title2 'Frequency of number of times controls used as match';    
+proc freq data=distinct_control_dup;
+    tables n_times_matched;
+run;
+   
+
+title2 'Number of distinct control matches per case';
+proc freq data=n_matches;
+    tables n_distinct_matches;
+run;
+    
+title2 'Distribution of mahalanobis distance for top 3 matches';    
+proc univariate data=topmatch;
+      var distance_mahal;
+run;    
+/*ods rtf close;*/
+
+proc sql;
+    select 
+    count(co_pid) as n_control, 
+    count(distinct pid) as n_case 
+    from topmatch
+;
+quit;
+
+data &outdsn;
+   set topmatch;
+run;
+  
+%mend step2_seq_strat;  		
+
+/* end lindsay macros */	
+	
+
+%macro ODSOff(); /* Call prior to BY-group processing */
+ods graphics off;
+ods exclude all;
+ods noresults;
+%mend;
+
+/* Simulation macro development */
+
+	/* OVerview 1:5 :  
+	
+	1.  Select a random set of cases and controls from the big pop
+	2.  Assign hazard 
+	*/
+
+%macro simulation5(
+pesospop=
+,controlsamplesize=
+);
+
+%ODSOff
+
+/* 1.  Construct population:  Select a random population for each iteration from 
+PESOS data (1 observation per participant, first observation) */
+
+/* 2a. Controls:  Build a correlation matrix based on this population */
+proc corr data=&pesospop Spearman noprob plots=matrix(hist) outp=controlcov5 ;
+where case=0;
+var 
+diabetic
+SEX
+Insulin
+AFIB
+CIRRHOSIS
+DEPR
+DYSLIPID
+EATINGDO
+FATTYLIVER
+GERD
+HIATAL
+MI
+STROKE
+VTE
+bmi
+quan_gagne_score
+VTERISK
+age 
+
+
+;
+run;
+
+/* 2b. Cases:  Build a correlation matrix based on this population */
+proc corr data=&pesospop Spearman noprob plots=matrix(hist) outp=casecov5 ;
+where case=1;
+var 
+diabetic
+SEX
+Insulin
+AFIB
+CIRRHOSIS
+DEPR
+DYSLIPID
+EATINGDO
+FATTYLIVER
+GERD
+HIATAL
+MI
+STROKE
+VTE
+bmi
+quan_gagne_score
+VTERISK
+age 
+
+
+;
+run;
+
+/* 3a:  Controls:  Generate simulated population */
+data n;
+simnormalseed = 0+(%randintbetween(1000,10000));
+call symput ('simnormalseed',simnormalseed);
+run;
+ods output;
+
+%put &simnormalseed;
+run;
+
+proc print data=n;
+run;
+
+proc simnormal data=controlcov5 (type=corr)
+out = controlsimpop5
+numreal = &controlsamplesize
+seed = &simnormalseed;
+;
+var 	
+diabetic
+SEX
+Insulin
+AFIB
+CIRRHOSIS
+DEPR
+DYSLIPID
+EATINGDO
+FATTYLIVER
+GERD
+HIATAL
+MI
+STROKE
+VTE
+bmi
+quan_gagne_score
+VTERISK
+age ;
+run;
+
+
+/* 3b:  Cases:  Generate simulated population */
+
+proc simnormal data=casecov5 (type=corr)
+out = casesimpop5
+numreal = 1570
+seed = &simnormalseed
+;
+var 	
+diabetic
+SEX
+Insulin
+AFIB
+CIRRHOSIS
+DEPR
+DYSLIPID
+EATINGDO
+FATTYLIVER
+GERD
+HIATAL
+MI
+STROKE
+VTE
+bmi
+quan_gagne_score
+VTERISK
+age ;
+run;
+
+
+proc means data=controlsimpop5;
+run;
+
+/* 3a.1:  Convert probabilities for categorical vars into binary values (all from PESOS data) */
+
+data controlsimpop5;
+set controlsimpop5;
+
+if diabetic lt 0.52605 then diabetic =0;
+if sex lt 0.46027 then sex =0;
+if insulin lt 0.4473 then insulin =0;
+if AFIB lt 0.36807 then AFIB =0;
+if CIRRHOSIS lt 0.17259 then CIRRHOSIS =0;
+if DEPR lt 0.54828 then DEPR =0;
+if DYSLIPID lt 0.52215 then DYSLIPID =0;
+if EATINGDO lt 0.18376 then EATINGDO =0;
+if FATTYLIVER lt 0.33033 then FATTYLIVER =0;
+if GERD lt 0.50314 then GERD =0;
+if HIATAL lt 0.21568 then HIATAL =0;
+if MI lt 0.34842 then MI =0;
+if STROKE lt 0.28401 then STROKE =0;
+if VTE lt 0.26003 then VTE =0;
+
+
+
+if diabetic ge 0.52605 then diabetic =1;
+if sex ge 0.46027 then sex =1;
+if insulin ge 0.4473 then insulin =1;
+if AFIB ge 0.36807 then AFIB =1;
+if CIRRHOSIS ge 0.17259 then CIRRHOSIS =1;
+if DEPR ge 0.54828 then DEPR =1;
+if DYSLIPID ge 0.52215 then DYSLIPID =1;
+if EATINGDO ge 0.18376 then EATINGDO =1;
+if FATTYLIVER ge 0.33033 then FATTYLIVER =1;
+if GERD ge 0.50314 then GERD =1;
+if HIATAL ge 0.21568 then HIATAL =1;
+if MI ge 0.34842 then MI =1;
+if STROKE ge 0.28401 then STROKE =1;
+if VTE ge 0.26003 then VTE =1;
+rename rnum=ID;
+if diabetic=0 and insulin=1 then diabetic=1;
+
+case=0;
+control=1;
+
+run;
+
+
+
+/* 3b.1:  Convert probabilities for categorical vars into binary values */
+
+data casesimpop5;
+set casesimpop5;
+
+if diabetic lt 0.53669 then diabetic=0;
+if sex lt 0.44111 then sex=0;	
+if insulin lt 0.53641 then insulin=0;
+if AFIB lt 0.40025	 then AFIB=0;
+if CIRRHOSIS lt 0.18287 then CIRRHOSIS=0;
+if DEPR lt 0.49592 then DEPR=0;
+if DYSLIPID lt 0.52968 then DYSLIPID=0;
+if EATINGDO lt 0.35949 then EATINGDO=0;
+if FATTYLIVER lt 0.47395 then FATTYLIVER=0;
+if GERD lt 0.48433 then GERD=0;
+if HIATAL lt 0.56577 then HIATAL=0;
+if MI lt 0.43311 then MI=0;
+if STROKE lt 0.31408 then STROKE=0;
+if VTE lt 0.26525 then VTE=0;
+
+
+if diabetic ge 0.53669 then diabetic=1;
+if sex ge 0.44111 then sex=1;	
+if insulin ge 0.53641 then insulin=1;
+if AFIB ge 0.40025	 then AFIB=1;
+if CIRRHOSIS ge 0.18287 then CIRRHOSIS=1;
+if DEPR ge 0.49592 then DEPR=1;
+if DYSLIPID ge 0.52968 then DYSLIPID=1;
+if EATINGDO ge 0.35949 then EATINGDO=1;
+if FATTYLIVER ge 0.47395 then FATTYLIVER=1;
+if GERD ge 0.48433 then GERD=1;
+if HIATAL ge 0.56577 then HIATAL=1;
+if MI ge 0.43311 then MI=1;
+if STROKE ge 0.31408 then STROKE=1;
+if VTE ge 0.26525 then VTE=1;
+
+if diabetic=0 and insulin=1 then diabetic=1;
+id2=rnum+200000;
+rename id2=ID;
+case=1;
+control=0;
+
+run;
+
+data simpop5 (replace=yes);
+set casesimpop5 controlsimpop5;
+run;
+
+proc means data=simpop5;
+var quan_gagne_score vterisk age;
+output out=negs;
+run;
+
+data negs2;
+set negs;
+if _n_ =2 then call symput('qneg', quan_gagne_score);
+if _n_ =2 then call symput('vneg', VTERISK);
+if _n_ =2 then call symput('aneg', age);
+run;
+
+data prepincrease5;
+set simpop5;
+
+/* Make all vars positive */
+if quan_gagne_score~=. then quan_gagne_score=(quan_gagne_score+&qneg);
+if vterisk~=. then vterisk=(vterisk+&vneg);
+if age ~=. then age=(age+&aneg); 
+sig=2;
+run;
+
+proc sort data=prepincrease5;
+by id;
+run;
+
+data increase5case;
+set prepincrease5;
+where case=1;
+by id;
+
+array avte VTERISK VTERISK VTERISK VTERISK VTERISK VTERISK VTERISK VTERISK VTERISK VTERISK VTERISK VTERISK VTERISK VTERISK VTERISK VTERISK VTERISK;
+array aage age age age age age age age age age age age age age age age age age;
+array abmi bmi bmi bmi bmi bmi bmi bmi bmi bmi bmi bmi bmi bmi bmi bmi bmi bmi;
+array agagne quan_gagne_score quan_gagne_score quan_gagne_score quan_gagne_score quan_gagne_score quan_gagne_score quan_gagne_score quan_gagne_score quan_gagne_score quan_gagne_score quan_gagne_score quan_gagne_score quan_gagne_score quan_gagne_score quan_gagne_score quan_gagne_score quan_gagne_score;
+array aID id id id id id id id id id id id id id id id id id;
+
+do i=1 to 17;
+
+/* Randomly jitter some continuous covars*/
+Rage=(aage[i]+(i*.5)); /*Increment age by 6 moinths*/
+Rbmi=(abmi[i]+%randbetween(-0.5,0.5));
+Rgagne=(agagne[i]+%randbetween(0, 0.25));
+rVTERISK=(avte[i]+%randbetween(0, 0.1)); /*Changes VTErisk by a random value limited to +- 1 SD*/ 
+timept=i*.5; *creates the measurement time variable, note that this will make 1=6 months;
+
+/* retain everyone's ID */
+
+ID2=aID[i];
+
+output; *outputs the observation to the data set;
+end;
+
+if timept~=. then timept=(timept-0.5);
+
+pid=ID2;
+eid=_n_;
+run;
+
+data increase5control;
+set prepincrease5;
+where case=0;
+by id;
+
+array avte VTERISK VTERISK VTERISK VTERISK VTERISK VTERISK VTERISK VTERISK VTERISK VTERISK VTERISK VTERISK VTERISK VTERISK VTERISK VTERISK VTERISK;
+array aage age age age age age age age age age age age age age age age age age;
+array abmi bmi bmi bmi bmi bmi bmi bmi bmi bmi bmi bmi bmi bmi bmi bmi bmi bmi;
+array agagne quan_gagne_score quan_gagne_score quan_gagne_score quan_gagne_score quan_gagne_score quan_gagne_score quan_gagne_score quan_gagne_score quan_gagne_score quan_gagne_score quan_gagne_score quan_gagne_score quan_gagne_score quan_gagne_score quan_gagne_score quan_gagne_score quan_gagne_score;
+array aID id id id id id id id id id id id id id id id id id;
+
+do i=1 to 17;
+
+/* Randomly jitter some continuous covars*/
+Rage=(aage[i]+(i*.5)); /*Increment age by 6 moinths*/
+Rbmi=(abmi[i]+%randbetween(-0.5,0.5));
+Rgagne=(agagne[i]+%randbetween(0, 0.25));
+rVTERISK=(avte[i]+%randbetween(0, 0.1)); /*Changes VTErisk by a random value limited to +- 1 SD*/ 
+timept=i*.5; *creates the measurement time variable, note that this will make 1=6 months;
+
+/* retain everyone's ID */
+
+ID2=aID[i];
+
+output; *outputs the observation to the data set;
+end;
+
+if timept~=. then timept=(timept-0.5);
+
+pid=ID2;
+eid=_n_;
+run;
+
+data increased;
+set increase5case increase5control;
+run;
+
+
+data increase2;
+set increased;
+pid=ID;
+eid=_N_;
+run;
+
+data timept0;
+set increase2;
+if timept~=. then timept=(timept-0.5);
+run;
+
+proc sort data=timept0;
+by pid;
+run;
+
+
+/* Approach A:  (Valerie and I agreed) - Cases have 1 case encounter, and 15 control encounters.*/
+data allow16cases;
+set timept0;
+by pid;
+counter+1;
+if case=1 and first.pid then counter=1;
+if case=1 and counter>1 then casecontrol=1; /* flag case encounters that will act as controls */
+if case=1 and counter>1 then case=0; /* This isn't perfect, it sets all encounters besides the first one to case=0, and then the first one gets a random timept so that the cases do'nt all happen at time 0 or 1*/
+if case=1 then timept=%randintbetween(1,16);
+if case=1 then timept=timept*0.5;
+*if case=1 and casecontrol=. then casecontrol=0;
+*if counter=1 and timept~=0.5 then timept=0.5;
+
+run;
+
+proc sort data=allow16cases;
+by pid timept descending case;
+run;
+
+
+data dedup;
+set allow16cases;
+by pid timept descending case;
+if first.timept then retain=1;
+run;
+
+data dupless;
+set dedup;
+where retain=1;
+run;
+
+
+
+/* here is your :
+1 case encounter per case
+15 control encounteres PER CASE
+16 encounters per control */
+
+DATA STARTSTOPA5;
+set dupless;  
+where case=1;
+start=timept-(.4999);
+stop=timept; 
+run;
+
+
+
+data startstop2A5;
+set dupless; 
+where case~=1;
+start=timept-(.4999);
+stop=timept; 
+run;
+
+data startstopreadyA5;
+set startstopA5 startstop2A5;
+run;
+
+/*Remove case encounters after their surgery date (can no longer act as control)  */
+
+proc sort data=startstopreadya5;
+by pid timept descending case ;
+run;
+
+proc transpose data=startstopreadya5 out=end;
+where case=1;
+var pid timept;
+run;
+
+proc transpose data=end out=end2;
+var col:;
+run;
+
+data fm (drop=_name_);
+set end2;
+rename timept=casetimept;
+run;
+
+data only;
+set startstopreadya5;
+where pid ge 200000;
+run;
+
+data m;
+merge fm only;
+by pid;
+if timept > casetimept then delete;
+run;
+
+data con;
+set startstopreadya5;
+where pid lt 200000;
+run;
+
+data ready;
+set m con;
+run;
+
+/* Build hazard estimates - note ID statement at bottom */
+
+ods output ParameterEstimates = parms;
+proc phreg data = ready outest=haz ;
+class 
+diabetic (ref="0")
+case (ref="0")
+SEX (ref="0")
+Insulin (ref="0")
+
+DEPR (ref="0")
+DYSLIPID (ref="0")
+EATINGDO (ref="0")
+FATTYLIVER (ref="0")
+MI (ref="0")
+/param=ref;
+model (start, stop)*case(0) = diabetic SEX Insulin /*AFIB*/ /*CIRRHOSIS*/ DEPR DYSLIPID /*EATINGDO*/ FATTYLIVER /* GERD HIATAL*/ MI /*STROKE*/ /*VTE*/ Rbmi Rgagne RVTERISK Rage 
+/ TIES = EFRON RL;  /* added this 11/15 */
+ BASELINE OUT=SURVS SURVIVAL=S CUMHAZ=CumHaz;;
+ id pid;
+ run;
+
+data puts;
+set parms;
+if _n_ =1 then call symput('diabetic', estimate);
+if _n_ =2 then call symput('sex', estimate);
+if _n_ =3 then call symput('insulin', estimate);
+if _n_ =4 then call symput('DEPR', estimate);
+if _n_ =5 then call symput('DYSLIPID', estimate);
+if _n_ =6 then call symput('FATTYLIVER', estimate);
+if _n_ =7 then call symput('MI', estimate);
+if _n_ =8 then call symput('Rbmi', estimate);
+if _n_ =9 then call symput('Rgagne', estimate);
+if _n_ =10 then call symput('rVTERISK', estimate);
+if _n_ =11 then call symput('Rage', estimate);
+run;
+ 
+ /* Assign hazard values to each participant*/
+ 
+data hazardsa5;
+set ready;
+hazdiabetic= diabetic*&diabetic;
+hazsex= sex * &sex;
+hazinsulin= insulin * &insulin;
+hazDEPR= depr* &DEPR;
+hazDYSLIPID= dyslipid * &DYSLIPID;
+hazFATTYLIVER= fattyliver* &FATTYLIVER;
+hazMI= MI * &MI;
+hazRbmi= rbmi * &Rbmi;
+hazRgagne= rgagne * &Rgagne;
+hazrVTERISK= rvterisk * &rVTERISK;
+hazRage= rage * &Rage;
+haz=(hazdiabetic+hazsex+hazinsulin+hazDEPR+hazDYSLIPID+hazFATTYLIVER+hazMI+hazRbmi+hazRgagne+hazrVTERISK+hazRage);
+if haz<0 then haz=.00001; /* flip side of maximum hazard - has to be a minimum hazard too */
+run;
+
+proc sort data=hazardsa5;
+by case;
+run;
+
+proc means data=hazardsa5 ;
+output out=hazmax max=hazmax;
+var haz;
+run;
+
+data _null;
+set hazmax;
+call symput('hazmax',hazmax);
+run;
+
+data hazscore5;
+set hazardsa5;
+hazscore=(haz/&hazmax);
+run;
+
+proc sort data=hazscore5;
+by pid eid timept;
+run;
+
+data try11;
+set hazscore5;
+where timept >0;
+run;
+
+/* Final setup for 1:5 - this may look goofy because of my matchtime approach
+in this approach, historical controls are allowed for a mximum of 6 months prior to a case (0.5 years)
+this means that there will be two copies of an eligible control for every time POINT
+one with a matchtime of that time POINT, and one with a matchtime for the timePoint+0.5*/
+
+data controlidea5;
+set try11;
+where case=0;
+matchtime=timept;
+run;
+
+data controlidea25;
+set try11;
+where case=0;
+matchtime=timept+0.5;
+run;
+
+data caseidea5;
+set try11;
+where case=1;
+matchtime=timept;
+run;
+
+data timeidea5;
+set controlidea5 controlidea25 caseidea5; /* note this is where you have to add the controls for time 1.0 in again otherwise they won't appear properly */
+run;
+
+data assignweight;
+set timeidea5;
+casebeta=(case*0.2447);
+Ragebeta=(Rage*0.0008);
+Rbmibeta=(Rbmi*0.0006);
+malebeta=(sex*0.0162);
+diabetesbeta=(diabetic*0.0056);
+insulinbeta=(insulin*-0.0137);
+depressionbeta=(depr*-0.0024);
+rgagnebeta=(rgagne*-0.0014);
+dyslipidemiabeta=(dyslipid*-0.006);
+fattyliverbeta=(fattyliver*0.0024);
+mibeta=(mi*0.0039);
+Rvteriskbeta=(Rvterisk*0.0057);
+strokebeta=(stroke*0.0024);
+gerdbeta=(gerd*0.0033);
+hiatalherniabeta=(hiatal*-0.0066);
+afibbeta=(afib*0.0114);
+cirrhosisbeta=(cirrhosis*-0.0497);
+eatingdisorderbeta=(eatingdo*0.0025);
+twl=-0.0952+casebeta+Ragebeta+Rbmibeta+malebeta+diabetesbeta+insulinbeta+depressionbeta+rgagnebeta+dyslipidemiabeta+fattyliverbeta+mibeta+Rvteriskbeta+strokebeta+gerdbeta+hiatalherniabeta+afibbeta+cirrhosisbeta+eatingdisorderbeta;
+TrueWtChangeVariation=RAND('NORMal',twl, .1446673); /* Randomly jitter TWL by STD from PESOS */
+run;
+
+/* everyone has been assigned twl */
+
+/* Prior to matching, and after jitterying, what is relationship - 24.62% weight loss,
+comparable to original TWL of 24.47% weight loss */
+
+proc genmod data=assignweight;
+model TrueWtChangeVariation = case
+Rage
+Rbmi
+sex
+diabetic
+insulin
+depr
+rgagne
+dyslipid
+fattyliver
+mi
+Rvterisk
+stroke
+gerd
+hiatal
+afib
+cirrhosis
+eatingdo
+;
+ods output ParameterEstimates=tvps5est;
+run;
+
+/* Now let's match using the two approaches */
+
+data table100;
+set assignweight;
+rename DEPR=Depression;
+rename DYSLIPID=Dyslipidemia;
+rename EATINGDO=Eatingdisorder;
+rename FATTYLIVER=FattyLiver;
+rename HIATAL=HiatalHernia;
+rename STROKE=Stroke;
+rename bmi=BMI;
+rename quan_gagne_score=QuanGagneScore;
+rename VTERISK=VTErisk;
+rename sex=Male;
+rename diabetic=Diabetes;
+if hazscore ge 0.999 then hazscore =.99800;
+run;
+
+
+
+ods output 
+ MatchInfo=matchinfo 
+ PSInfo=psinfo 
+ DataInfo=datainfo;
+
+proc psmatch data=table100;
+class case matchtime ;
+psdata treatvar=case(Treated="1") ps=hazscore;
+*psmodel case(Treated="1")= diabetes case male Insulin Depression DYSLIPIDemia FATTYLIVER MI
+Rbmi Rgagne rVTERISK Rage;
+match method=replace(k=1) distance=PS stat=lps caliper=0.25 exact=(matchtime);
+assess ps var=(hazscore BMI Male Diabetes insulin Depression Dyslipidemia FattyLiver MI rgagne rVTErisk stroke VTE GERD HiatalHernia AFIB CIRRHOSIS EATINGDisorder);
+output out(obs=match)=haz100replace lps=_Lps matchid=_MatchID;
+run;
+
+data store;
+set matchinfo;
+where label1="Matched Obs (Treated)";
+if label1="Matched Obs (Treated)" then call symput('TVpsMatchNum', cvalue1);
+run;
+
+proc genmod data=haz100replace;
+model TrueWtChangeVariation = case
+Rage
+Rbmi
+male
+diabetes
+insulin
+depression
+rgagne
+dyslipidemia
+fattyliver
+mi
+Rvterisk
+stroke
+gerd
+hiatalhernia
+afib
+cirrhosis
+eatingdisorder
+;
+ods output ParameterEstimates=tvps5est;
+run;
+
+data tvps5_1;
+set tvps5est;
+where parameter='case';
+MatchNum=&TVPSmatchnum;
+run;
+
+data o.tvps5_1;
+set o.tvps5_1 tvps5_1;
+run;
+
+
+/* Start SS */
+
+%step1_seq_strat(
+dsn=table100
+,control_limit=%str(rgagne<10)
+,outdsn=step1_5
+,match_male=1
+,match_cirrhosis=0 /* not used covariate #5*/
+,match_depression=1 
+,match_diabetes=1
+,match_insulin=1 
+,match_dyslipidemia=1  
+,match_fattyliver=1
+,match_gerd=0 /*not used covariate #2 */
+,match_hiatalhernia=0 /* not used covariate #3*/
+,match_mi=1
+,match_stroke=0 /* Not used covariate #1 */
+,match_vte=0
+,match_eatingdisorder=0 /* not used covariaet #6*/
+,match_afib=0
+,match_age=1
+,age_diff=5 /* study decisions*/
+,match_bmi=1
+,bmi_diff=5 /* study decisions*/
+,match_gagne=1
+,gagne_diff=1.0 /* study/ my decision */
+,match_vterisk=1
+,vterisk_diff=10
+,rtffile=%str(/dphs/niddk_pesos_5208/Morgan/MethodsCompare/Final Code and Data/Output;)
+,titlestr=%str(Match on all variables, one to five PESOS VARS)
+);
+
+%step2_seq_strat(dsn=step1_5, outdsn=step2_5,
+rtffile=%str(/dphs/niddk_pesos_5208/Morgan/MethodsCompare/Final Code and Data/Output;), 
+titlestr=%str(Match on all variables, one to five approach, PESOS vars));
+
+
+/* remember lindsays' output has cases/controls on one line, with differetn covariate prefix for controls 
+so dataset must be split and reassembled*/
+
+
+data double5controls (keep=pid co_rage co_rbmi co_male co_diabetes co_insulin co_depression co_rgagne
+co_dyslipidemia co_fattyliver co_mi co_rvterisk co_stroke co_gerd co_hiatalhernia co_afib co_cirrhosis co_eatingdisorder);
+set step2_5;
+control=1;
+run;
+
+/* Unfortunately have to re-assign twl and truewtchangevariation as code doesn't store it for controls, only cases*/
+
+data double5controls2 (keep=pid co_twl TrueWtChangeVariation co_rage co_rbmi co_male co_diabetes co_insulin co_depression co_rgagne
+co_dyslipidemia co_fattyliver co_mi co_rvterisk co_stroke co_gerd co_hiatalhernia co_afib co_cirrhosis co_eatingdisorder);
+set double5controls;
+*casebeta=(case*0.2447);
+Ragebeta=(co_Rage*0.0008);
+Rbmibeta=(co_Rbmi*0.0006);
+malebeta=(co_male*0.0162);
+diabetesbeta=(co_diabetes*0.0056);
+insulinbeta=(co_insulin*-0.0137);
+depressionbeta=(co_depression*-0.0024);
+rgagnebeta=(co_rgagne*-0.0014);
+dyslipidemiabeta=(co_dyslipidemia*-0.006);
+fattyliverbeta=(co_fattyliver*0.0024);
+mibeta=(co_mi*0.0039);
+Rvteriskbeta=(co_Rvterisk*0.0057);
+strokebeta=(co_stroke*0.0024);
+gerdbeta=(co_gerd*0.0033);
+hiatalherniabeta=(co_hiatalhernia*-0.0066);
+afibbeta=(co_afib*0.0114);
+cirrhosisbeta=(co_cirrhosis*-0.0497);
+eatingdisorderbeta=(co_eatingdisorder*0.0025);
+co_twl=-0.0952+Ragebeta+Rbmibeta+malebeta+diabetesbeta+insulinbeta+depressionbeta+rgagnebeta+dyslipidemiabeta+fattyliverbeta+mibeta+Rvteriskbeta+strokebeta+gerdbeta+hiatalherniabeta+afibbeta+cirrhosisbeta+eatingdisorderbeta;
+TrueWtChangeVariation=RAND('NORMal',co_twl, .1446673); /* Randomly jitter TWL by STD from PESOS */
+run;
+
+/* rename these control covariates to fit case covariate naming convention */
+
+data double5controls3;
+set double5controls2;
+case=0;
+rename co_rage=rage;
+rename co_rbmi=rbmi;
+rename co_male=male;
+rename co_diabetes=diabetes;
+rename co_insulin=insulin;
+rename co_depression=depression;
+rename co_rgagne=rgagne;
+rename co_dyslipidemia=dyslipidemia;
+rename co_fattyliver=fattyliver;
+rename co_mi=mi;
+rename co_rvterisk=rvterisk;
+rename co_stroke=stroke;
+rename co_gerd=gerd;
+rename co_hiatalhernia=hiatalhernia;
+rename co_afib=afib;
+rename co_cirrhosis=cirrhosis;
+rename co_eatingdisorder=eatingdisorder;
+twl=co_twl; /* making unified TWL outcome, so for controls co_TWL becomes TWL */
+run;
+
+data double5cases;
+set step2_5;
+TrueWtChangeVariation=RAND('NORMal',twl, .1446673);
+run;
+
+data readySS5;
+set double5controls3 double5cases;
+run;
+
+/* For this SS iteration, .23222 (0.2175	0.2468) which contains the true value (.2447) and is reasonably precise (.0293)*/
+proc genmod data=readySS5;
+model TrueWtChangeVariation = case
+Rage
+Rbmi
+male
+diabetes
+insulin
+depression
+rgagne
+dyslipidemia
+fattyliver
+mi
+Rvterisk
+stroke
+gerd
+hiatalhernia
+afib
+cirrhosis
+eatingdisorder
+;
+ods output ParameterEstimates=ssest NObs=matches;
+run;
+
+data nummatches;
+set matches;
+where label="Number of Observations Used";
+if label="Number of Observations Used" then matchnum=(NObsUsed/2);
+call symput ('ssMatchNum', matchnum );
+run;
+
+/* Remember you have to run the macro once to get o.ss or o.tvps started, then run the loop */
+
+data ss5_1;
+set ssest;
+where parameter="case";
+MatchNum=&ssmatchnum;
+run;
+
+data o.ss5_1;
+set o.ss5_1 ss5_1;
+run;
+
+
+%mend 
+
+
+/* this is my loop macro */
+
+%macro loop(start, stop);
+%do iii=&start %to &stop;
+%simulation5(pesospop=m.pop_1encounter, controlsamplesize=7850);
+%end;
+%mend();
+
+/* Do tvps 1:5 and SS 1:5 */
+/* 10-14-22 , the last run somehow deleted my tvps out put, trying again */
+
+%loop(1,999); /* 9 minutes for 50 */
+
+
+proc contents data=o.tvps5_1;
+run;
+
+/* reset to 1 if needed 
+data o.tvps5_1;
+set o.tvps5_1;
+where iteration=1;
+if _n_>1 then delete;
+run;
+
+data o.ss5_1;
+set o.ss5_1;
+where iteration=1;
+if _n_>1 then delete;
+run;
+
+*/
+
+proc print data=o.tvps5_1 (obs=50);
+run;
+
+proc print data=o.ss5_1 (obs=50);
+run;
+/* For unknown reasons, SAS will lose the 5:1 datasets if they are renamed.  So the 50:1 are _All, while the 5:1 are _1 */
+
+data tvpstest5;
+set o.tvps5_1;
+if lowerwaldcl <=.2447  /* This accounts for SAS rounding */
+and upperwaldcl >=.2447 then true=1;
+else true=0;
+matchprop=matchnum/1570;
+ciwidth=upperwaldcl-lowerwaldcl;
+ciratio=upperwaldcl/lowerwaldcl;
+run;
+
+
+data tvpstest50;
+set o.tvps50_all;
+if lowerwaldcl <=.2447  /* This accounts for SAS rounding */
+and upperwaldcl >=.2447 then true=1;
+else true=0;
+matchprop=matchnum/1570;
+ciwidth=upperwaldcl-lowerwaldcl;
+ciratio=upperwaldcl/lowerwaldcl;
+run;
+
+
+data sstest5;
+set o.ss5_1;
+if lowerwaldcl <=.2447  /* This accounts for SAS rounding */
+and upperwaldcl >=.2447 then true=1;
+else true=0;
+matchprop=matchnum/1570;
+ciwidth=upperwaldcl-lowerwaldcl;
+ciratio=upperwaldcl/lowerwaldcl;
+run;
+
+
+data sstest50;
+set o.ss50_All;
+if lowerwaldcl <=.2447  /* This accounts for SAS rounding */
+and upperwaldcl >=.2447 then true=1;
+else true=0;
+matchprop=matchnum/1570;
+ciwidth=upperwaldcl-lowerwaldcl;
+ciratio=upperwaldcl/lowerwaldcl;
+run;
+
+
+
+/* Begin stats */
+
+	/* Number and percent of cases matched to controls */
+	
+
+/* SS5 stats */
+
+proc sort data=sstest5;
+by matchnum;
+run;
+
+proc sort data=sstest50;
+by matchnum;
+run;
+
+proc sort data=tvpstest5;
+by matchnum;
+run;
+
+proc sort data=tvpstest50;
+by matchnum;
+run;
+
+title 'SS 1:5 - Number of Cases Matched to Controls (max 1,570)';
+proc univariate data=sstest5;
+histogram;
+var matchnum;
+run;
+
+title 'SS 1:5 - Percent of Cases Matched to Controls (max 100%)';
+proc univariate data=sstest5;
+histogram;
+var matchprop;
+run;
+
+/* SS50- stats */
+
+title 'SS 1:50 - Number of Cases Matched to Controls (max 1,570)';
+proc univariate data=sstest50;
+histogram;
+var matchnum;
+run;
+
+title 'SS 1:50 - Percent of Cases Matched to Controls (max 100%)';
+proc univariate data=sstest50;
+histogram;
+var matchprop;
+run;
+
+/* tvps5- stats */
+
+title 'tvPS 1:5 - Number of Cases Matched to Controls (max 1,570)';
+proc univariate data=tvpstest5;
+histogram matchnum /midpoints =(1566 to 1570 by 1) ;
+run;
+
+title 'tvPS 1:5 - Percent of Cases Matched to Controls (max 100%)';
+proc univariate data=tvpstest5;
+histogram matchprop /midpoints=(.95 to .999 by .01);
+run;
+
+/* tvps50- stats */
+
+title 'tvPS 1:50 - Number of Cases Matched to Controls (max 1,570)';
+proc univariate data=tvpstest50;
+histogram matchnum /midpoints =(1566 to 1570 by 1) ;
+run;
+
+title 'tvPS 1:50 - Percent of Cases Matched to Controls (max 100%)';
+proc univariate data=tvpstest50;
+histogram matchprop /midpoints=(.95 to .999 by .01);
+run;
+
+/* end # and % Matches */
+
+/* Begin CI width */
+
+
+/* SS5 stats */
+
+
+title 'SS 1:5 - Distribution of Confidence Interval Width ';
+proc univariate data=sstest5;
+where true=1;
+histogram ciwidth ;
+run;
+
+title 'SS 1:50 - Distribution of Confidence Interval Width ';
+proc univariate data=sstest50;
+histogram ciwidth;
+run;
+
+/* tvps */
+title 'tvPS 1:5 - Distribution of Confidence Interval Width ';
+proc univariate data=tvpstest5;
+histogram ciwidth ;
+run;
+
+title 'tvPS 1:50 - Distribution of Confidence Interval Width ';
+proc univariate data=tvpstest50;
+histogram ciwidth;
+run;
+
+
+
+title 'tvPS 1:50 - Distribution of Confidence Interval Width ';
+proc univariate data=tvpstest50;
+histogram true;
+run;
+
+
+
+proc freq data=tvpstest5;
+tables true;
+run;
+
+proc freq data=tvpstest50;
+tables true;
+run;
+
+proc freq data=sstest5;
+tables true;
+run;
+
+proc freq data=sstest50;
+tables true;
+run;
+
+
+proc compare base=o.ss5_1 compare=o.ss50_All;run;
+
+proc means data=tvpstest5;
+run;
+
+proc means data=tvpstest50;
+run;
+
+
+proc means data=sstest5;
+run;
+
+proc means data=sstest50;
+run;
+
+/* Coverage*/
+proc means data=tvpstest5;
+where true=1;
+run;
+
+proc means data=tvpstest50;
+where true=1;
+run;
+
+
+proc means data=sstest5;
+where true=1;
+run;
+
+proc means data=sstest50;
+where true=1;
+run;
