@@ -1467,3 +1467,26 @@ Run;
 
 %loop(1,1000);/* 5 minutes for 50 */
 
+
+data tvpstest5;
+set o.tvps5_1;
+if lowerwaldcl <=.291  /* This accounts for SAS rounding */
+and upperwaldcl >=.291 then true=1;
+else true=0;
+matchprop=matchnum/1570;
+ciwidth=upperwaldcl-lowerwaldcl;
+ciratio=upperwaldcl/lowerwaldcl;
+/*if true=1 then */bias=.291-estimate; /*updated 20230721 as per Valerie's comment in paper*/
+run;
+
+
+data sstest5;
+set o.ss5_1_ALL_Repeated;
+if lowerwaldcl <=.291  /* This accounts for SAS rounding */
+and upperwaldcl >=.291 then true=1;
+else true=0;
+matchprop=matchnum/1570;
+ciwidth=upperwaldcl-lowerwaldcl;
+ciratio=upperwaldcl/lowerwaldcl;
+/*if true=1 then */bias=.291-estimate; /*updated 20230721 as per Valerie's comment in paper*/
+run;
