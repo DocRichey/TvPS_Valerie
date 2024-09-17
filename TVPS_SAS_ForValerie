@@ -1,16 +1,7 @@
-libname m '/dphs/niddk_pesos_5208/Morgan/MethodsCompare/Final Code and Data/Macro';
+
+libname o 'C:\bitlocker\SAS';
 run;
 
-libname o '/dphs/niddk_pesos_5208/Morgan/MethodsCompare/Final Code and Data/SimOutput';
-run;
-
-/* Approach: 
-
-1. Define macros that will be used within the main macro
-2.  Write new macro
-3.  Test 
-
-*/
 
 %macro RandIntBetween(min, max);
    (&min + floor((1+&max-&min)*rand("uniform")))
@@ -509,8 +500,8 @@ pesospop=
 /* 1.  Construct population:  Select a random population for each iteration from 
 PESOS data (1 observation per participant, first observation) */
 
-/* 2a. Controls:  Build a correlation matrix based on this population */
-proc corr data=&pesospop Spearman noprob plots=matrix(hist) outp=controlcov5 ;
+/* 2a. Controls:  Build a correlation matrix based on this population 
+proc corr data=final.pesosunique2 Spearman noprob plots=matrix(hist) outp=controlcov5 ;
 where case=0;
 var 
 diabetic
@@ -526,7 +517,7 @@ GERD
 HIATAL
 MI
 STROKE
-VTE
+*VTE is sparse in the new data, breaks the sim 
 bmi
 quan_gagne_score
 VTERISK
@@ -535,9 +526,10 @@ age
 
 ;
 run;
+*/
 
-/* 2b. Cases:  Build a correlation matrix based on this population */
-proc corr data=&pesospop Spearman noprob plots=matrix(hist) outp=casecov5 ;
+/* 2b. Cases:  Build a correlation matrix based on this population
+proc corr data=final.pesosunique2 Spearman noprob plots=matrix(hist) outp=casecov5 ;
 where case=1;
 var 
 diabetic
@@ -553,7 +545,7 @@ GERD
 HIATAL
 MI
 STROKE
-VTE
+*VTE is sparse in the new data, breaks the sim *
 bmi
 quan_gagne_score
 VTERISK
@@ -562,6 +554,7 @@ age
 
 ;
 run;
+ */
 
 /* 3a:  Controls:  Generate simulated population */
 data n;
@@ -576,7 +569,7 @@ run;
 proc print data=n;
 run;
 
-proc simnormal data=controlcov5 (type=corr)
+proc simnormal data=o.controlcov5 (type=corr)
 out = controlsimpop5
 numreal = &controlsamplesize
 seed = &simnormalseed;
@@ -595,7 +588,7 @@ GERD
 HIATAL
 MI
 STROKE
-VTE
+/*VTE is sparse in the new data, breaks the sim */
 bmi
 quan_gagne_score
 VTERISK
@@ -605,7 +598,7 @@ run;
 
 /* 3b:  Cases:  Generate simulated population */
 
-proc simnormal data=casecov5 (type=corr)
+proc simnormal data=o.casecov5 (type=corr)
 out = casesimpop5
 numreal = 1570
 seed = &simnormalseed
@@ -624,16 +617,13 @@ GERD
 HIATAL
 MI
 STROKE
-VTE
+/*VTE is sparse in the new data, breaks the sim */
 bmi
 quan_gagne_score
 VTERISK
 age ;
 run;
 
-
-proc means data=controlsimpop5;
-run;
 
 /* 3a.1:  Convert probabilities for categorical vars into binary values (all from PESOS data) */
 
@@ -925,19 +915,19 @@ set startstopreadya5;
 where pid ge 200000;
 run;
 
-data m;
+data em; /* 20240916 @ Home - had to change this from m to em - invalid member name */
 merge fm only;
 by pid;
 if timept > casetimept then delete;
 run;
 
-data con;
+data cont; /* 20240916 @ Home - had to change this from con to cont - invalid member name */
 set startstopreadya5;
 where pid lt 200000;
 run;
 
 data ready;
-set m con;
+set em cont;
 run;
 
 /* Build hazard estimates - note ID statement at bottom */
@@ -1051,28 +1041,29 @@ data timeidea5;
 set controlidea5 controlidea25 caseidea5; /* note this is where you have to add the controls for time 1.0 in again otherwise they won't appear properly */
 run;
 
+/* 20230721 - Update this with new beta estimates from model with 29.10% TWL%*/
 data assignweight;
 set timeidea5;
-casebeta=(case*0.2447);
+casebeta=(case*0.2909);
 Ragebeta=(Rage*0.0008);
-Rbmibeta=(Rbmi*0.0006);
-malebeta=(sex*0.0162);
-diabetesbeta=(diabetic*0.0056);
-insulinbeta=(insulin*-0.0137);
-depressionbeta=(depr*-0.0024);
-rgagnebeta=(rgagne*-0.0014);
-dyslipidemiabeta=(dyslipid*-0.006);
-fattyliverbeta=(fattyliver*0.0024);
-mibeta=(mi*0.0039);
-Rvteriskbeta=(Rvterisk*0.0057);
-strokebeta=(stroke*0.0024);
-gerdbeta=(gerd*0.0033);
-hiatalherniabeta=(hiatal*-0.0066);
-afibbeta=(afib*0.0114);
-cirrhosisbeta=(cirrhosis*-0.0497);
-eatingdisorderbeta=(eatingdo*0.0025);
-twl=-0.0952+casebeta+Ragebeta+Rbmibeta+malebeta+diabetesbeta+insulinbeta+depressionbeta+rgagnebeta+dyslipidemiabeta+fattyliverbeta+mibeta+Rvteriskbeta+strokebeta+gerdbeta+hiatalherniabeta+afibbeta+cirrhosisbeta+eatingdisorderbeta;
-TrueWtChangeVariation=RAND('NORMal',twl, .1446673); /* Randomly jitter TWL by STD from PESOS */
+Rbmibeta=(Rbmi*-0.0005);
+malebeta=(sex*0.0016);
+diabetesbeta=(diabetic*0.0159);
+insulinbeta=(insulin*-0.0141);
+depressionbeta=(depr*-0.0031);
+rgagnebeta=(rgagne*-0.0010);
+dyslipidemiabeta=(dyslipid*-0.0002);
+fattyliverbeta=(fattyliver*0.0045);
+mibeta=(mi*-0.0015);
+Rvteriskbeta=(Rvterisk*0.0020);
+strokebeta=(stroke*-0.0037);
+gerdbeta=(gerd*-0.0012);
+hiatalherniabeta=(hiatal*-0.0032);
+afibbeta=(afib*0.0003);
+cirrhosisbeta=(cirrhosis*-0.0008);
+eatingdisorderbeta=(eatingdo*-0.0022);
+twl=-0.0386+casebeta+Ragebeta+Rbmibeta+malebeta+diabetesbeta+insulinbeta+depressionbeta+rgagnebeta+dyslipidemiabeta+fattyliverbeta+mibeta+Rvteriskbeta+strokebeta+gerdbeta+hiatalherniabeta+afibbeta+cirrhosisbeta+eatingdisorderbeta;
+TrueWtChangeVariation=RAND('NORMal',twl, .0933488); /* Randomly jitter TWL by STD from PESOS updated 20230727*/
 run;
 
 /* everyone has been assigned twl */
@@ -1102,6 +1093,7 @@ eatingdo
 ;
 ods output ParameterEstimates=tvps5est;
 run;
+
 
 /* Now let's match using the two approaches */
 
@@ -1145,6 +1137,7 @@ if label1="Matched Obs (Treated)" then call symput('TVpsMatchNum', cvalue1);
 run;
 
 proc genmod data=haz100replace;
+class pid;
 model TrueWtChangeVariation = case
 Rage
 Rbmi
@@ -1163,18 +1156,65 @@ hiatalhernia
 afib
 cirrhosis
 eatingdisorder
-;
-ods output ParameterEstimates=tvps5est;
+/dist=normal;
+repeated subject=pid /type=ind printmle; 
+ods output parameterestimates=tvps5estrepeated NObs=matches;
+run;
+
+data tvps5_1;
+set tvps5estrepeated;
+where parameter='case';
+MatchNum=&TVPSmatchnum;
+repeated=1;
+run;
+
+
+proc genmod data=haz100replace;
+model TrueWtChangeVariation = case
+Rage
+Rbmi
+male
+diabetes
+insulin
+depression
+rgagne
+dyslipidemia
+fattyliver
+mi
+Rvterisk
+stroke
+gerd
+hiatalhernia
+afib
+cirrhosis
+eatingdisorder
+/dist=normal;
+*repeated subject=pid /type=ind printmle; 
+ods output parameterestimates=tvps5est NObs=matches;
 run;
 
 data tvps5_1;
 set tvps5est;
 where parameter='case';
 MatchNum=&TVPSmatchnum;
+repeated=1;
+seed=&simnormalseed;
+ModType="No repeated measures";
 run;
 
+data tvps5_2;
+set tvps5estrepeated;
+where parameter="case";
+MatchNum=&TVPSmatchnum;
+repeated=0;
+seed=&simnormalseed;
+ModType="Repeated measures";
+run;
+
+
 data o.tvps5_1;
-set o.tvps5_1 tvps5_1;
+set o.tvps5_1 tvps5_1 tvps5_2; /* comment me out for first run */
+*set tvps5_1 tvps5_2; /* comment me out for subsequent runs */
 run;
 
 
@@ -1206,12 +1246,12 @@ dsn=table100
 ,gagne_diff=1.0 /* study/ my decision */
 ,match_vterisk=1
 ,vterisk_diff=10
-,rtffile=%str(/dphs/niddk_pesos_5208/Morgan/MethodsCompare/Final Code and Data/Output;)
+,rtffile=%str(C:\SAS\tvps\SSoutput;)
 ,titlestr=%str(Match on all variables, one to five PESOS VARS)
 );
 
 %step2_seq_strat(dsn=step1_5, outdsn=step2_5,
-rtffile=%str(/dphs/niddk_pesos_5208/Morgan/MethodsCompare/Final Code and Data/Output;), 
+rtffile=%str(C:\SAS\tvps\SSoutput;), 
 titlestr=%str(Match on all variables, one to five approach, PESOS vars));
 
 
@@ -1230,26 +1270,29 @@ run;
 data double5controls2 (keep=pid co_twl TrueWtChangeVariation co_rage co_rbmi co_male co_diabetes co_insulin co_depression co_rgagne
 co_dyslipidemia co_fattyliver co_mi co_rvterisk co_stroke co_gerd co_hiatalhernia co_afib co_cirrhosis co_eatingdisorder);
 set double5controls;
-*casebeta=(case*0.2447);
+*casebeta=(case*0.2909);
 Ragebeta=(co_Rage*0.0008);
-Rbmibeta=(co_Rbmi*0.0006);
-malebeta=(co_male*0.0162);
-diabetesbeta=(co_diabetes*0.0056);
-insulinbeta=(co_insulin*-0.0137);
-depressionbeta=(co_depression*-0.0024);
-rgagnebeta=(co_rgagne*-0.0014);
-dyslipidemiabeta=(co_dyslipidemia*-0.006);
-fattyliverbeta=(co_fattyliver*0.0024);
-mibeta=(co_mi*0.0039);
-Rvteriskbeta=(co_Rvterisk*0.0057);
-strokebeta=(co_stroke*0.0024);
-gerdbeta=(co_gerd*0.0033);
-hiatalherniabeta=(co_hiatalhernia*-0.0066);
-afibbeta=(co_afib*0.0114);
-cirrhosisbeta=(co_cirrhosis*-0.0497);
-eatingdisorderbeta=(co_eatingdisorder*0.0025);
-co_twl=-0.0952+Ragebeta+Rbmibeta+malebeta+diabetesbeta+insulinbeta+depressionbeta+rgagnebeta+dyslipidemiabeta+fattyliverbeta+mibeta+Rvteriskbeta+strokebeta+gerdbeta+hiatalherniabeta+afibbeta+cirrhosisbeta+eatingdisorderbeta;
-TrueWtChangeVariation=RAND('NORMal',co_twl, .1446673); /* Randomly jitter TWL by STD from PESOS */
+Rbmibeta=(co_Rbmi*-0.0005);
+malebeta=(co_male*0.0016);
+diabetesbeta=(co_diabetes*0.0159);
+insulinbeta=(co_insulin*-0.0141);
+depressionbeta=(co_depression*-0.0031);
+rgagnebeta=(co_rgagne*-0.0010);
+dyslipidemiabeta=(co_dyslipidemia*-0.0002);
+fattyliverbeta=(co_fattyliver*0.0045);
+mibeta=(co_mi*-0.0015);
+Rvteriskbeta=(co_Rvterisk*0.0020);
+strokebeta=(co_stroke*-0.0037);
+gerdbeta=(co_gerd*-0.0012);
+hiatalherniabeta=(co_hiatalhernia*-0.0032);
+afibbeta=(co_afib*0.0003);
+cirrhosisbeta=(co_cirrhosis*-0.0008);
+eatingdisorderbeta=(co_eatingdisorder*-0.0022);
+co_twl=-0.0386+Ragebeta+Rbmibeta+malebeta+diabetesbeta+insulinbeta+depressionbeta+rgagnebeta+dyslipidemiabeta+fattyliverbeta+mibeta+Rvteriskbeta+strokebeta+gerdbeta+hiatalherniabeta+afibbeta+cirrhosisbeta+eatingdisorderbeta;
+TrueWtChangeVariation=RAND('NORMal',co_twl,.0933488); /* Randomly jitter TWL by STD from PESOS updated 2023727*/
+/**/
+
+
 run;
 
 /* rename these control covariates to fit case covariate naming convention */
@@ -1279,7 +1322,7 @@ run;
 
 data double5cases;
 set step2_5;
-TrueWtChangeVariation=RAND('NORMal',twl, .1446673);
+TrueWtChangeVariation=RAND('NORMal',twl, .0933488);
 run;
 
 data readySS5;
@@ -1287,7 +1330,9 @@ set double5controls3 double5cases;
 run;
 
 /* For this SS iteration, .23222 (0.2175	0.2468) which contains the true value (.2447) and is reasonably precise (.0293)*/
+
 proc genmod data=readySS5;
+class pid;
 model TrueWtChangeVariation = case
 Rage
 Rbmi
@@ -1305,12 +1350,42 @@ gerd
 hiatalhernia
 afib
 cirrhosis
-eatingdisorder;
+eatingdisorder
+/dist=normal;
+*repeated subject=pid /type=ind printmle; 
+ods output parameterestimates=ssest NObs=matches;
+run;
+
+data nummatches2;
+set matches;
+where label="Number of Observations Used";
+if label="Number of Observations Used" then matchnum2=(NObsUsed/2);
+call symput ('ssMatchNum2', matchnum2 );
+run;
+
+proc genmod data=readySS5;
+class pid;
+model TrueWtChangeVariation = case
+Rage
+Rbmi
+male
+diabetes
+insulin
+depression
+rgagne
+dyslipidemia
+fattyliver
+mi
+Rvterisk
+stroke
+gerd
+hiatalhernia
+afib
+cirrhosis
+eatingdisorder
 /dist=normal;
 repeated subject=pid /type=ind printmle; 
-ods output parameterestimates=ssest NObs=matches;
-;
-ods output ParameterEstimates=ssest NObs=matches;
+ods output parameterestimates=ssestrepeated NObs=matches;
 run;
 
 data nummatches;
@@ -1320,17 +1395,57 @@ if label="Number of Observations Used" then matchnum=(NObsUsed/2);
 call symput ('ssMatchNum', matchnum );
 run;
 
-/* Remember you have to run the macro once to get o.ss or o.tvps started, then run the loop */
-
 data ss5_1;
-set ssest;
+set ssestrepeated;
 where parameter="case";
 MatchNum=&ssmatchnum;
+seed=&simnormalseed;
+ModType="   Repeated measures";
 run;
 
-data o.ss5_1;
-set o.ss5_1 ss5_1;
+data ss5_2;
+set ssest;
+where parameter="case";
+MatchNum=&ssmatchnum2;
+seed=&simnormalseed;
+ModType="No repeated measures";
 run;
+
+data o.ss5_1_ALL_Repeated;
+set o.ss5_1_ALL_Repeated ss5_1  ss5_2;
+run; 
+
+
+/* this is the one to run first - original approach 
+data o.ss5_1Original;
+set ss5_1;
+run;
+*/
+
+
+/* run this one once the first one has been run: original approach 
+
+data o.ss5_1Original;
+set o.ss5_1Original ss5_1;
+run; 
+*/
+
+
+
+/* this is the one to run first - Repeated approach in GENMOD 
+
+
+data o.ss5_1_ALL_Repeated;
+set ss5_1;
+run;
+*/
+
+/* run this one once the first one has been run: with ID statement */
+
+
+
+
+
 
 
 %mend 
@@ -1340,244 +1455,15 @@ run;
 
 %macro loop(start, stop);
 %do iii=&start %to &stop;
-%simulation5(pesospop=m.pop_1encounter, controlsamplesize=7850);
+%simulation5(pesospop=final.pesosunique2, controlsamplesize=7850);
 %end;
 %mend();
 
 /* Do tvps 1:5 and SS 1:5 */
 /* 10-14-22 , the last run somehow deleted my tvps out put, trying again */
 
-%loop(1,999); /* 9 minutes for 50 */
+Proc printto log='templog.log' new;
+Run;
 
+%loop(1,1000);/* 5 minutes for 50 */
 
-proc contents data=o.tvps5_1;
-run;
-
-/* reset to 1 if needed 
-data o.tvps5_1;
-set o.tvps5_1;
-where iteration=1;
-if _n_>1 then delete;
-run;
-
-data o.ss5_1;
-set o.ss5_1;
-where iteration=1;
-if _n_>1 then delete;
-run;
-
-*/
-
-proc print data=o.tvps5_1 (obs=50);
-run;
-
-proc print data=o.ss5_1 (obs=50);
-run;
-/* For unknown reasons, SAS will lose the 5:1 datasets if they are renamed.  So the 50:1 are _All, while the 5:1 are _1 */
-
-data tvpstest5;
-set o.tvps5_1;
-if lowerwaldcl <=.2447  /* This accounts for SAS rounding */
-and upperwaldcl >=.2447 then true=1;
-else true=0;
-matchprop=matchnum/1570;
-ciwidth=upperwaldcl-lowerwaldcl;
-ciratio=upperwaldcl/lowerwaldcl;
-run;
-
-
-data tvpstest50;
-set o.tvps50_all;
-if lowerwaldcl <=.2447  /* This accounts for SAS rounding */
-and upperwaldcl >=.2447 then true=1;
-else true=0;
-matchprop=matchnum/1570;
-ciwidth=upperwaldcl-lowerwaldcl;
-ciratio=upperwaldcl/lowerwaldcl;
-run;
-
-
-data sstest5;
-set o.ss5_1;
-if lowerwaldcl <=.2447  /* This accounts for SAS rounding */
-and upperwaldcl >=.2447 then true=1;
-else true=0;
-matchprop=matchnum/1570;
-ciwidth=upperwaldcl-lowerwaldcl;
-ciratio=upperwaldcl/lowerwaldcl;
-run;
-
-
-data sstest50;
-set o.ss50_All;
-if lowerwaldcl <=.2447  /* This accounts for SAS rounding */
-and upperwaldcl >=.2447 then true=1;
-else true=0;
-matchprop=matchnum/1570;
-ciwidth=upperwaldcl-lowerwaldcl;
-ciratio=upperwaldcl/lowerwaldcl;
-run;
-
-
-
-/* Begin stats */
-
-	/* Number and percent of cases matched to controls */
-	
-
-/* SS5 stats */
-
-proc sort data=sstest5;
-by matchnum;
-run;
-
-proc sort data=sstest50;
-by matchnum;
-run;
-
-proc sort data=tvpstest5;
-by matchnum;
-run;
-
-proc sort data=tvpstest50;
-by matchnum;
-run;
-
-title 'SS 1:5 - Number of Cases Matched to Controls (max 1,570)';
-proc univariate data=sstest5;
-histogram;
-var matchnum;
-run;
-
-title 'SS 1:5 - Percent of Cases Matched to Controls (max 100%)';
-proc univariate data=sstest5;
-histogram;
-var matchprop;
-run;
-
-/* SS50- stats */
-
-title 'SS 1:50 - Number of Cases Matched to Controls (max 1,570)';
-proc univariate data=sstest50;
-histogram;
-var matchnum;
-run;
-
-title 'SS 1:50 - Percent of Cases Matched to Controls (max 100%)';
-proc univariate data=sstest50;
-histogram;
-var matchprop;
-run;
-
-/* tvps5- stats */
-
-title 'tvPS 1:5 - Number of Cases Matched to Controls (max 1,570)';
-proc univariate data=tvpstest5;
-histogram matchnum /midpoints =(1566 to 1570 by 1) ;
-run;
-
-title 'tvPS 1:5 - Percent of Cases Matched to Controls (max 100%)';
-proc univariate data=tvpstest5;
-histogram matchprop /midpoints=(.95 to .999 by .01);
-run;
-
-/* tvps50- stats */
-
-title 'tvPS 1:50 - Number of Cases Matched to Controls (max 1,570)';
-proc univariate data=tvpstest50;
-histogram matchnum /midpoints =(1566 to 1570 by 1) ;
-run;
-
-title 'tvPS 1:50 - Percent of Cases Matched to Controls (max 100%)';
-proc univariate data=tvpstest50;
-histogram matchprop /midpoints=(.95 to .999 by .01);
-run;
-
-/* end # and % Matches */
-
-/* Begin CI width */
-
-
-/* SS5 stats */
-
-
-title 'SS 1:5 - Distribution of Confidence Interval Width ';
-proc univariate data=sstest5;
-where true=1;
-histogram ciwidth ;
-run;
-
-title 'SS 1:50 - Distribution of Confidence Interval Width ';
-proc univariate data=sstest50;
-histogram ciwidth;
-run;
-
-/* tvps */
-title 'tvPS 1:5 - Distribution of Confidence Interval Width ';
-proc univariate data=tvpstest5;
-histogram ciwidth ;
-run;
-
-title 'tvPS 1:50 - Distribution of Confidence Interval Width ';
-proc univariate data=tvpstest50;
-histogram ciwidth;
-run;
-
-
-
-title 'tvPS 1:50 - Distribution of Confidence Interval Width ';
-proc univariate data=tvpstest50;
-histogram true;
-run;
-
-
-
-proc freq data=tvpstest5;
-tables true;
-run;
-
-proc freq data=tvpstest50;
-tables true;
-run;
-
-proc freq data=sstest5;
-tables true;
-run;
-
-proc freq data=sstest50;
-tables true;
-run;
-
-
-proc compare base=o.ss5_1 compare=o.ss50_All;run;
-
-proc means data=tvpstest5;
-run;
-
-proc means data=tvpstest50;
-run;
-
-
-proc means data=sstest5;
-run;
-
-proc means data=sstest50;
-run;
-
-/* Coverage*/
-proc means data=tvpstest5;
-where true=1;
-run;
-
-proc means data=tvpstest50;
-where true=1;
-run;
-
-
-proc means data=sstest5;
-where true=1;
-run;
-
-proc means data=sstest50;
-where true=1;
-run;
